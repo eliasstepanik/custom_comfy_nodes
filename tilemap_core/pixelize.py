@@ -209,13 +209,21 @@ def build_palette(works: Sequence[np.ndarray], alphas: Sequence[np.ndarray], k: 
     pixels = np.concatenate(parts)
     if pixels.shape[0] == 0:
         raise ValueError("build_palette found no opaque pixels (every tile fully transparent)")
+    return _median_cut(pixels, k)
+
+
+def _median_cut(pixels: np.ndarray, k: int) -> np.ndarray:
+    """Median-cut ``(n, 3) uint8`` pixels (n >= 1) to at most ``k`` colours, ``k`` in 1..256.
+
+    Stride-subsamples to <= 262144 pixels, quantises without dithering and returns
+    the unique used colours as ``(k', 3) uint8``, sorted. Unvalidated: callers check.
+    """
     if pixels.shape[0] > _PALETTE_SAMPLE_MAX:
         pixels = pixels[:: -(-pixels.shape[0] // _PALETTE_SAMPLE_MAX)]
     img = Image.fromarray(np.ascontiguousarray(pixels.reshape(1, -1, 3)))
     quant = img.quantize(colors=k, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE)
     table = np.array(quant.getpalette() or [], dtype=np.uint8).reshape(-1, 3)
-    used = np.unique(np.asarray(quant))
-    return np.unique(table[used], axis=0)
+    return np.unique(table[np.unique(np.asarray(quant))], axis=0)
 
 
 def index_image(work: np.ndarray, palette: np.ndarray) -> np.ndarray:
