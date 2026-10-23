@@ -1,0 +1,237 @@
+{
+  "1": {
+    "class_type": "CCN_TilemapPlan",
+    "_meta": {
+      "title": "Tilemap Plan"
+    },
+    "inputs": {
+      "prompt": "forest floor terrain: grass, dirt, rocks, gravel, rubble, fallen logs, bushes, leaves, trees",
+      "view": "top-down",
+      "tile_size": 32,
+      "max_tiles": 16,
+      "model": "claude-sonnet-5",
+      "model_override": "",
+      "refresh_plan": false
+    }
+  },
+  "2": {
+    "class_type": "CCN_TilemapExpand",
+    "_meta": {
+      "title": "Tilemap Expand"
+    },
+    "inputs": {
+      "plan_json": [
+        "1",
+        0
+      ],
+      "style_prefix": "GRPZA, umempart, pixel art",
+      "seed": 42,
+      "cell_px": 512
+    }
+  },
+  "3": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "flux1-dev-fp8.safetensors"
+    }
+  },
+  "4": {
+    "class_type": "LoraLoader",
+    "_meta": {
+      "title": "Game Assets LoRA"
+    },
+    "inputs": {
+      "model": [
+        "3",
+        0
+      ],
+      "clip": [
+        "3",
+        1
+      ],
+      "lora_name": "gokay_2d_game_assets_v3.safetensors",
+      "strength_model": 0.9,
+      "strength_clip": 0.9
+    }
+  },
+  "5": {
+    "class_type": "LoraLoader",
+    "_meta": {
+      "title": "Pixel Art LoRA"
+    },
+    "inputs": {
+      "model": [
+        "4",
+        0
+      ],
+      "clip": [
+        "4",
+        1
+      ],
+      "lora_name": "ume_modern_pixelart.safetensors",
+      "strength_model": 0.5,
+      "strength_clip": 0.5
+    }
+  },
+  "6": {
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "Positive Prompt"
+    },
+    "inputs": {
+      "text": [
+        "2",
+        0
+      ],
+      "clip": [
+        "5",
+        1
+      ]
+    }
+  },
+  "7": {
+    "class_type": "FluxGuidance",
+    "inputs": {
+      "guidance": 3.5,
+      "conditioning": [
+        "6",
+        0
+      ]
+    }
+  },
+  "8": {
+    "class_type": "EmptySD3LatentImage",
+    "inputs": {
+      "width": [
+        "2",
+        1
+      ],
+      "height": [
+        "2",
+        2
+      ],
+      "batch_size": 1
+    }
+  },
+  "9": {
+    "class_type": "KSampler",
+    "inputs": {
+      "seed": [
+        "2",
+        3
+      ],
+      "steps": 20,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "5",
+        0
+      ],
+      "positive": [
+        "7",
+        0
+      ],
+      "negative": [
+        "15",
+        0
+      ],
+      "latent_image": [
+        "8",
+        0
+      ]
+    }
+  },
+  "10": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "9",
+        0
+      ],
+      "vae": [
+        "3",
+        2
+      ]
+    }
+  },
+  "12": {
+    "class_type": "CCN_TilemapAssemble",
+    "inputs": {
+      "images": [
+        "10",
+        0
+      ],
+      "job_json": [
+        "2",
+        4
+      ],
+      "palette_size": 24,
+      "columns": 8,
+      "spacing": 0,
+      "seam_blend": 0.25,
+      "key_tolerance": 40,
+      "transitions": true
+    }
+  },
+  "13": {
+    "class_type": "CCN_SaveTilemap",
+    "inputs": {
+      "atlas": [
+        "12",
+        0
+      ],
+      "alpha": [
+        "12",
+        1
+      ],
+      "metadata": [
+        "12",
+        3
+      ],
+      "filename_prefix": "tilemap/tilemap"
+    }
+  },
+  "14": {
+    "class_type": "PreviewImage",
+    "_meta": {
+      "title": "Preview Tile Grid"
+    },
+    "inputs": {
+      "images": [
+        "16",
+        0
+      ]
+    }
+  },
+  "15": {
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "Negative Prompt"
+    },
+    "inputs": {
+      "text": "",
+      "clip": [
+        "5",
+        1
+      ]
+    }
+  },
+  "16": {
+    "class_type": "CCN_ImageGridLabeled",
+    "_meta": {
+      "title": "Tile Grid (labeled)"
+    },
+    "inputs": {
+      "images": [
+        "12",
+        2
+      ],
+      "columns": 8,
+      "padding": 2,
+      "background": "black",
+      "show_index": true
+    }
+  }
+}
