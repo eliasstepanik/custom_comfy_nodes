@@ -26,9 +26,9 @@ CATEGORY = "custom_comfy_nodes/tilemap"
 CACHE_DIRNAME = "ccn_tilemap_cache"
 MAX_TILES_RANGE = (1, 48)
 LLM_MAX_TOKENS = 8000
-LLM_TEMPERATURE = 0.4
 LLM_TIMEOUT_S = 180
 _ERR_CHARS = 300
+_REPLY_CHARS = 200
 _SEED_MAX = 2**64 - 1
 _DEFAULT_MODEL = "claude-sonnet-5"
 
@@ -55,17 +55,21 @@ def _tile_size(value: object) -> int:
     return value
 
 
+def _reply_excerpt(reply: str) -> str:
+    """Return ``reply`` on one line (non-printable chars and whitespace runs -> one space), max 200 chars."""
+    flat = "".join(ch if ch.isprintable() else " " for ch in reply)
+    return " ".join(flat.split())[:_REPLY_CHARS].rstrip()
+
+
 def _ask_plan(messages: list, model: str, max_tiles: int) -> dict:
-    """Ask the LLM; on a schema failure ask exactly once more with the error text, then raise."""
+    """Ask the LLM; on a schema failure ask exactly once more with the error text, then raise.
+
+    Only ``PlanError`` triggers the repair; ``LLMProxyError`` from ``chat`` propagates at once.
+    ``temperature`` is not sent: several models (claude-sonnet-5, opus-5) reject it.
+    """
 
     def call(msgs: list) -> str:
-        return llm_client.chat(
-            msgs,
-            model,
-            max_tokens=LLM_MAX_TOKENS,
-            temperature=LLM_TEMPERATURE,
-            timeout=LLM_TIMEOUT_S,
-        )
+        return llm_client.chat(msgs, model, max_tokens=LLM_MAX_TOKENS, timeout=LLM_TIMEOUT_S)
 
     reply = call(messages)
     try:
@@ -78,7 +82,8 @@ def _ask_plan(messages: list, model: str, max_tiles: int) -> dict:
     except plan_schema.PlanError as second:
         raise plan_schema.PlanError(
             "the LLM did not return a valid tile plan after one repair attempt. "
-            f"First error: {first_msg[:_ERR_CHARS]} Second error: {str(second)[:_ERR_CHARS]}"
+            f"First error: {first_msg[:_ERR_CHARS]} Second error: {str(second)[:_ERR_CHARS]} "
+            f"Reply start: {_reply_excerpt(reply2)}"
         ) from None
 
 
