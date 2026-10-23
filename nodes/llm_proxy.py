@@ -21,7 +21,8 @@ from ..tilemap_core.llm_client import LLMProxyError
 
 MAX_TEXT_CHARS = 60_000  # per text input; longer input is rejected, never silently cut
 TOKENS_MIN, TOKENS_MAX, TOKENS_DEFAULT = 1, 32_000, 1024
-TEMP_MIN, TEMP_MAX, TEMP_DEFAULT = 0.0, 2.0, 0.7
+# Negative temperature = "not sent" (provider default). claude-sonnet-5/opus-5 reject the parameter.
+TEMP_MIN, TEMP_MAX, TEMP_DEFAULT = -1.0, 2.0, -1.0
 TIMEOUT_MIN, TIMEOUT_MAX, TIMEOUT_DEFAULT = 5, 600, 120
 JSON_FORMAT = {"type": "json_object"}
 
@@ -85,7 +86,13 @@ class LLMChat:
                 ),
                 "temperature": (
                     "FLOAT",
-                    {"default": TEMP_DEFAULT, "min": TEMP_MIN, "max": TEMP_MAX, "step": 0.05},
+                    {
+                        "default": TEMP_DEFAULT,
+                        "min": TEMP_MIN,
+                        "max": TEMP_MAX,
+                        "step": 0.05,
+                        "tooltip": "Negative = not sent (provider default; required for claude-sonnet-5/opus-5).",
+                    },
                 ),
                 "timeout_s": (
                     "INT",
@@ -101,7 +108,10 @@ class LLMChat:
     RETURN_NAMES = ("text",)
     FUNCTION = "chat"
     CATEGORY = "custom_comfy_nodes/llm"
-    DESCRIPTION = "Single-turn chat with the llm-proxy. The API key comes from the server environment only."
+    DESCRIPTION = (
+        "Single-turn chat with the llm-proxy. The API key comes from the server environment only. "
+        "temperature: negative = not sent (provider default; required for claude-sonnet-5/opus-5)."
+    )
 
     def chat(
         self,
@@ -129,11 +139,13 @@ class LLMChat:
             messages = [{"role": "user", "content": user_text}]
             if system_text.strip():
                 messages.insert(0, {"role": "system", "content": system_text})
+            temp_value = _clamp_float(temperature, TEMP_MIN, TEMP_MAX, TEMP_DEFAULT, "temperature")
+            temp = None if temp_value < 0 else temp_value  # 0.0 is a real value, only negatives mean "not sent"
             reply = llm_client.chat(
                 messages,
                 chosen,
                 max_tokens=_clamp_int(max_tokens, TOKENS_MIN, TOKENS_MAX, TOKENS_DEFAULT, "max_tokens"),
-                temperature=_clamp_float(temperature, TEMP_MIN, TEMP_MAX, TEMP_DEFAULT, "temperature"),
+                temperature=temp,
                 timeout=_clamp_int(timeout_s, TIMEOUT_MIN, TIMEOUT_MAX, TIMEOUT_DEFAULT, "timeout_s"),
                 response_format=dict(JSON_FORMAT) if json_mode is True else None,
             )
