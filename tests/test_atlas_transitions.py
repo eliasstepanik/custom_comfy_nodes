@@ -218,7 +218,7 @@ class MetadataTests(Base):
             for sp in (0, 2):
                 items, pl, _, img, meta = fixture(n, sp)
                 atlas.verify_atlas(img, meta, PAL, 6)
-                self.assertEqual((len(meta["tiles"]), meta["format"]), (len(items), "ccn-tilemap/1"))
+                self.assertEqual((len(meta["tiles"]), meta["format"]), (len(items), "ccn-tilemap/2"))
                 self.assertEqual(json.loads(json.dumps(meta)), meta)
                 tree, wang = meta["tiles"][2], meta["tiles"][-1]
                 self.assertEqual((tree["footprint"], len(tree["cells"]), tree["x"]), ([2, 2], 4, 2 * (n + sp)))
