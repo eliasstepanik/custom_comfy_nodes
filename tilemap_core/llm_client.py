@@ -151,8 +151,24 @@ def _retry_delay(headers: Any, attempt: int) -> float:
     return max(0.0, min(MAX_BACKOFF_S, delay))
 
 
-def _extract_text(payload: Any) -> str:
-    """Return ``choices[0].message.content`` (str, or joined ``text`` parts)."""
+def _upstream_error(err: Any, key: str) -> LLMProxyError:
+    """Error for an upstream failure: key redacted FIRST, THEN the message cut to 300 chars."""
+    if isinstance(err, dict) and isinstance(err.get("message"), str):
+        err = err["message"]
+    elif not isinstance(err, str):
+        err = json.dumps(err)
+    return LLMProxyError("LLM proxy upstream error: " + _redact(err, key)[:ERROR_BODY_CHARS])
+
+
+def _extract_text(payload: Any, key: str = "") -> str:
+    """Return ``choices[0].message.content`` (str, or joined ``text`` parts).
+
+    The proxy can report upstream failures as HTTP 200: a top-level ``error``
+    or content ``{"error": {"type": "proxy_error", ...}}``. Both raise
+    ``LLMProxyError`` (deterministic, never retried); ``key`` is redacted.
+    """
+    if isinstance(payload, dict) and isinstance(payload.get("error"), (dict, str)):
+        raise _upstream_error(payload["error"], key)
     try:
         content = payload["choices"][0]["message"]["content"]
     except (KeyError, IndexError, TypeError):
@@ -163,6 +179,14 @@ def _extract_text(payload: Any) -> str:
         )
     if not isinstance(content, str) or not content.strip():
         raise LLMProxyError("LLM proxy returned empty content")
+    if content.lstrip().startswith("{"):
+        try:
+            obj = json.loads(content)
+        except (ValueError, RecursionError):  # plain text that merely starts with "{"
+            obj = None
+        err = obj.get("error") if isinstance(obj, dict) else None
+        if isinstance(err, dict) and err.get("type") == "proxy_error":
+            raise _upstream_error(err, key)
     return content
 
 
@@ -183,7 +207,7 @@ def chat(
     messages: list,
     model: str,
     max_tokens: int = 1024,
-    temperature: float = 0.7,
+    temperature: Optional[float] = None,
     timeout: float = 120,
     retries: int = 3,
     api_key: Optional[str] = None,
@@ -198,6 +222,8 @@ def chat(
     Retries (``retries`` extra attempts) on 429/5xx, URLError and timeouts with
     exponential backoff via ``sleep``. Other 4xx fail at once.
     ``response_format`` (e.g. ``{"type": "json_object"}``) is sent when given.
+    ``temperature`` is sent only when not ``None`` (default: provider default).
+    An upstream error the proxy wraps in HTTP 200 raises ``LLMProxyError`` at once.
     """
     validate_model(model)
     _check_messages(messages)
@@ -215,9 +241,10 @@ def chat(
         "model": model,
         "messages": messages,
         "max_tokens": max_tokens,
-        "temperature": temperature,
         "stream": False,
     }
+    if temperature is not None:  # claude-sonnet-5/opus-5 etc. reject it, so it is opt-in
+        body["temperature"] = temperature
     if response_format is not None:
         body["response_format"] = response_format
     try:
@@ -252,7 +279,7 @@ def chat(
                     payload = json.loads(raw.decode("utf-8"))
                 except ValueError:  # includes UnicodeDecodeError
                     raise LLMProxyError("LLM proxy returned invalid JSON") from None
-                return _extract_text(payload)
+                return _extract_text(payload, key)
         except urllib.error.HTTPError as exc:
             try:
                 # redact the whole read body first, THEN truncate (a key straddling the cut would leak a prefix)
