@@ -1,7 +1,8 @@
 """Disk cache for validated tile plans.
 
 Key: sha256 over canonical JSON of ``(SCHEMA_VERSION, model, prompt, view,
-max_tiles)``. Seed, tile size and temperature are not part of the key. Files
+max_tiles)`` plus, only in extend mode, the hash of the existing plan. Seed,
+tile size and temperature are not part of the key. Files
 are named ``<64 hex chars>.json`` inside the cache directory the caller passes
 in, so no input text ever reaches a path component. A plan is validated before
 it is stored and again when it is loaded; the file on disk is never trusted.
@@ -27,7 +28,7 @@ from typing import Optional, Union
 from .plan_prompt import SCHEMA_VERSION
 from .plan_schema import MAX_JOBS, MAX_RAW_CHARS, PlanError, extract_json, validate_plan
 
-__all__ = ["cache_key", "load", "store"]
+__all__ = ["cache_key", "load", "plan_hash", "store"]
 
 PathLike = Union[str, "os.PathLike[str]"]
 
@@ -36,29 +37,53 @@ _KEY_RE = re.compile(r"[0-9a-f]{64}")
 _MAX_FILE_BYTES = MAX_RAW_CHARS * 4
 
 
-def cache_key(model: str, prompt: str, view: str, max_tiles: int) -> str:
+def plan_hash(plan: dict) -> str:
+    """Return the 64-char lowercase hex sha256 of a plan's canonical JSON.
+
+    This is the value callers pass as ``existing_hash`` in extend mode. Key order
+    does not matter. Raises ``ValueError`` when ``plan`` is not a dict or holds
+    values JSON cannot represent.
+    """
+    if not isinstance(plan, dict):
+        raise ValueError(f"plan must be a dict, got {type(plan).__name__}")
+    try:
+        canon = json.dumps(plan, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    except (TypeError, ValueError, RecursionError) as exc:
+        raise ValueError(f"plan is not JSON-serialisable: {exc}") from None
+    return hashlib.sha256(canon.encode("ascii")).hexdigest()
+
+
+def cache_key(model: str, prompt: str, view: str, max_tiles: int, existing_hash: str = "") -> str:
     """Return the 64-char lowercase hex sha256 key for these plan inputs.
 
+    ``existing_hash`` is the ``plan_hash`` of the plan an extend request builds
+    on. The empty default adds nothing to the hashed text, so keys of plain
+    (non-extend) requests are identical to those made before the parameter
+    existed; a non-empty hash is a further key component.
+
     Deterministic across runs and platforms. Raises ``ValueError`` when a text
-    argument is not a ``str`` or ``max_tiles`` is not an ``int``.
+    argument is not a ``str``, ``max_tiles`` is not an ``int`` or
+    ``existing_hash`` is neither empty nor 64 lowercase hex characters.
     """
     for name, value in (("model", model), ("prompt", prompt), ("view", view)):
         if not isinstance(value, str):
             raise ValueError(f"{name} must be text, got {type(value).__name__}")
     if isinstance(max_tiles, bool) or not isinstance(max_tiles, int):
         raise ValueError(f"max_tiles must be an integer, got {type(max_tiles).__name__}")
-    canon = json.dumps(
-        {
-            "max_tiles": max_tiles,
-            "model": model,
-            "prompt": prompt,
-            "schema_version": SCHEMA_VERSION,
-            "view": view,
-        },
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=True,
-    )
+    if not isinstance(existing_hash, str):
+        raise ValueError(f"existing_hash must be text, got {type(existing_hash).__name__}")
+    if existing_hash and _KEY_RE.fullmatch(existing_hash) is None:
+        raise ValueError("existing_hash must be empty or a 64-character lowercase hex digest (use plan_hash())")
+    parts = {
+        "max_tiles": max_tiles,
+        "model": model,
+        "prompt": prompt,
+        "schema_version": SCHEMA_VERSION,
+        "view": view,
+    }
+    if existing_hash:
+        parts["existing_hash"] = existing_hash
+    canon = json.dumps(parts, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     return hashlib.sha256(canon.encode("ascii")).hexdigest()
 
 
