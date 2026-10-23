@@ -1,0 +1,14 @@
+{
+  "prompt": ["1", "inputs", "prompt"],
+  "view": ["1", "inputs", "view"],
+  "tile_size": ["1", "inputs", "tile_size"],
+  "max_tiles": ["1", "inputs", "max_tiles"],
+  "model": ["1", "inputs", "model"],
+  "refresh_plan": ["1", "inputs", "refresh_plan"],
+  "seed": ["2", "inputs", "seed"],
+  "steps": ["9", "inputs", "steps"],
+  "palette_size": ["12", "inputs", "palette_size"],
+  "columns": ["12", "inputs", "columns"],
+  "spacing": ["12", "inputs", "spacing"],
+  "filename_prefix": ["13", "inputs", "filename_prefix"]
+}

@@ -1,0 +1,1337 @@
+{
+  "id": "4b2e7c19-3a58-4f06-9d71-8c0a5e2b6f13",
+  "revision": 0,
+  "last_node_id": 16,
+  "last_link_id": 25,
+  "nodes": [
+    {
+      "id": 3,
+      "type": "CheckpointLoaderSimple",
+      "pos": [
+        40,
+        0
+      ],
+      "size": [
+        340,
+        98
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "ckpt_name",
+          "type": "COMBO",
+          "widget": {
+            "name": "ckpt_name"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            1
+          ],
+          "slot_index": 0
+        },
+        {
+          "name": "CLIP",
+          "type": "CLIP",
+          "links": [
+            2
+          ],
+          "slot_index": 1
+        },
+        {
+          "name": "VAE",
+          "type": "VAE",
+          "links": [
+            13
+          ],
+          "slot_index": 2
+        }
+      ],
+      "title": "Load Checkpoint (Flux.1 dev fp8)",
+      "properties": {
+        "Node name for S&R": "CheckpointLoaderSimple"
+      },
+      "widgets_values": [
+        "flux1-dev-fp8.safetensors"
+      ]
+    },
+    {
+      "id": 4,
+      "type": "LoraLoader",
+      "pos": [
+        440,
+        0
+      ],
+      "size": [
+        340,
+        130
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 1
+        },
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 2
+        },
+        {
+          "name": "lora_name",
+          "type": "COMBO",
+          "widget": {
+            "name": "lora_name"
+          },
+          "link": null
+        },
+        {
+          "name": "strength_model",
+          "type": "FLOAT",
+          "widget": {
+            "name": "strength_model"
+          },
+          "link": null
+        },
+        {
+          "name": "strength_clip",
+          "type": "FLOAT",
+          "widget": {
+            "name": "strength_clip"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            3
+          ],
+          "slot_index": 0
+        },
+        {
+          "name": "CLIP",
+          "type": "CLIP",
+          "links": [
+            4
+          ],
+          "slot_index": 1
+        }
+      ],
+      "title": "Game Assets LoRA",
+      "properties": {
+        "Node name for S&R": "LoraLoader"
+      },
+      "widgets_values": [
+        "gokay_2d_game_assets_v3.safetensors",
+        0.9,
+        0.9
+      ]
+    },
+    {
+      "id": 5,
+      "type": "LoraLoader",
+      "pos": [
+        840,
+        0
+      ],
+      "size": [
+        340,
+        130
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 3
+        },
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 4
+        },
+        {
+          "name": "lora_name",
+          "type": "COMBO",
+          "widget": {
+            "name": "lora_name"
+          },
+          "link": null
+        },
+        {
+          "name": "strength_model",
+          "type": "FLOAT",
+          "widget": {
+            "name": "strength_model"
+          },
+          "link": null
+        },
+        {
+          "name": "strength_clip",
+          "type": "FLOAT",
+          "widget": {
+            "name": "strength_clip"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            8
+          ],
+          "slot_index": 0
+        },
+        {
+          "name": "CLIP",
+          "type": "CLIP",
+          "links": [
+            5,
+            6
+          ],
+          "slot_index": 1
+        }
+      ],
+      "title": "Pixel Art LoRA",
+      "properties": {
+        "Node name for S&R": "LoraLoader"
+      },
+      "widgets_values": [
+        "ume_modern_pixelart.safetensors",
+        0.5,
+        0.5
+      ]
+    },
+    {
+      "id": 1,
+      "type": "CCN_TilemapPlan",
+      "pos": [
+        40,
+        400
+      ],
+      "size": [
+        420,
+        330
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "prompt",
+          "type": "STRING",
+          "widget": {
+            "name": "prompt"
+          },
+          "link": null
+        },
+        {
+          "name": "view",
+          "type": "COMBO",
+          "widget": {
+            "name": "view"
+          },
+          "link": null
+        },
+        {
+          "name": "tile_size",
+          "type": "COMBO",
+          "widget": {
+            "name": "tile_size"
+          },
+          "link": null
+        },
+        {
+          "name": "max_tiles",
+          "type": "INT",
+          "widget": {
+            "name": "max_tiles"
+          },
+          "link": null
+        },
+        {
+          "name": "model",
+          "type": "COMBO",
+          "widget": {
+            "name": "model"
+          },
+          "link": null
+        },
+        {
+          "name": "model_override",
+          "type": "STRING",
+          "widget": {
+            "name": "model_override"
+          },
+          "link": null
+        },
+        {
+          "name": "refresh_plan",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "refresh_plan"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "plan_json",
+          "type": "STRING",
+          "links": [
+            15
+          ],
+          "slot_index": 0
+        },
+        {
+          "name": "summary",
+          "type": "STRING",
+          "links": null,
+          "slot_index": 1
+        }
+      ],
+      "title": "Tilemap Plan",
+      "properties": {
+        "Node name for S&R": "CCN_TilemapPlan"
+      },
+      "widgets_values": [
+        "forest floor terrain: grass, dirt, rocks, gravel, rubble, fallen logs, bushes, leaves, trees",
+        "top-down",
+        32,
+        16,
+        "claude-sonnet-5",
+        "",
+        false
+      ]
+    },
+    {
+      "id": 2,
+      "type": "CCN_TilemapExpand",
+      "pos": [
+        500,
+        400
+      ],
+      "size": [
+        380,
+        190
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "plan_json",
+          "type": "STRING",
+          "widget": {
+            "name": "plan_json"
+          },
+          "link": 15
+        },
+        {
+          "name": "style_prefix",
+          "type": "STRING",
+          "widget": {
+            "name": "style_prefix"
+          },
+          "link": null
+        },
+        {
+          "name": "seed",
+          "type": "INT",
+          "widget": {
+            "name": "seed"
+          },
+          "link": null
+        },
+        {
+          "name": "cell_px",
+          "type": "INT",
+          "widget": {
+            "name": "cell_px"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "prompt",
+          "type": "STRING",
+          "links": [
+            16
+          ],
+          "slot_index": 0
+        },
+        {
+          "name": "width",
+          "type": "INT",
+          "links": [
+            17
+          ],
+          "slot_index": 1
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "links": [
+            18
+          ],
+          "slot_index": 2
+        },
+        {
+          "name": "seed",
+          "type": "INT",
+          "links": [
+            19
+          ],
+          "slot_index": 3
+        },
+        {
+          "name": "job_json",
+          "type": "STRING",
+          "links": [
+            20
+          ],
+          "slot_index": 4
+        }
+      ],
+      "title": "Tilemap Expand",
+      "properties": {
+        "Node name for S&R": "CCN_TilemapExpand"
+      },
+      "widgets_values": [
+        "",
+        "GRPZA, umempart, pixel art",
+        42,
+        "fixed",
+        512
+      ]
+    },
+    {
+      "id": 6,
+      "type": "CLIPTextEncode",
+      "pos": [
+        1240,
+        0
+      ],
+      "size": [
+        400,
+        180
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "text",
+          "type": "STRING",
+          "widget": {
+            "name": "text"
+          },
+          "link": 16
+        },
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 5
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "links": [
+            7
+          ],
+          "slot_index": 0
+        }
+      ],
+      "title": "Positive Prompt",
+      "properties": {
+        "Node name for S&R": "CLIPTextEncode"
+      },
+      "widgets_values": [
+        ""
+      ]
+    },
+    {
+      "id": 7,
+      "type": "FluxGuidance",
+      "pos": [
+        1700,
+        0
+      ],
+      "size": [
+        300,
+        60
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "conditioning",
+          "type": "CONDITIONING",
+          "link": 7
+        },
+        {
+          "name": "guidance",
+          "type": "FLOAT",
+          "widget": {
+            "name": "guidance"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "links": [
+            9
+          ],
+          "slot_index": 0
+        }
+      ],
+      "title": "FluxGuidance",
+      "properties": {
+        "Node name for S&R": "FluxGuidance"
+      },
+      "widgets_values": [
+        3.5
+      ]
+    },
+    {
+      "id": 15,
+      "type": "CLIPTextEncode",
+      "pos": [
+        1240,
+        260
+      ],
+      "size": [
+        400,
+        130
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "text",
+          "type": "STRING",
+          "widget": {
+            "name": "text"
+          },
+          "link": null
+        },
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 6
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "links": [
+            10
+          ],
+          "slot_index": 0
+        }
+      ],
+      "title": "Negative Prompt",
+      "properties": {
+        "Node name for S&R": "CLIPTextEncode"
+      },
+      "widgets_values": [
+        ""
+      ]
+    },
+    {
+      "id": 8,
+      "type": "EmptySD3LatentImage",
+      "pos": [
+        1240,
+        450
+      ],
+      "size": [
+        340,
+        110
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "width",
+          "type": "INT",
+          "widget": {
+            "name": "width"
+          },
+          "link": 17
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "widget": {
+            "name": "height"
+          },
+          "link": 18
+        },
+        {
+          "name": "batch_size",
+          "type": "INT",
+          "widget": {
+            "name": "batch_size"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            11
+          ],
+          "slot_index": 0
+        }
+      ],
+      "title": "Empty Latent (from Expand)",
+      "properties": {
+        "Node name for S&R": "EmptySD3LatentImage"
+      },
+      "widgets_values": [
+        512,
+        512,
+        1
+      ]
+    },
+    {
+      "id": 9,
+      "type": "KSampler",
+      "pos": [
+        2060,
+        0
+      ],
+      "size": [
+        320,
+        300
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 8
+        },
+        {
+          "name": "seed",
+          "type": "INT",
+          "widget": {
+            "name": "seed"
+          },
+          "link": 19
+        },
+        {
+          "name": "steps",
+          "type": "INT",
+          "widget": {
+            "name": "steps"
+          },
+          "link": null
+        },
+        {
+          "name": "cfg",
+          "type": "FLOAT",
+          "widget": {
+            "name": "cfg"
+          },
+          "link": null
+        },
+        {
+          "name": "sampler_name",
+          "type": "COMBO",
+          "widget": {
+            "name": "sampler_name"
+          },
+          "link": null
+        },
+        {
+          "name": "scheduler",
+          "type": "COMBO",
+          "widget": {
+            "name": "scheduler"
+          },
+          "link": null
+        },
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 9
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "link": 10
+        },
+        {
+          "name": "latent_image",
+          "type": "LATENT",
+          "link": 11
+        },
+        {
+          "name": "denoise",
+          "type": "FLOAT",
+          "widget": {
+            "name": "denoise"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            12
+          ],
+          "slot_index": 0
+        }
+      ],
+      "title": "KSampler",
+      "properties": {
+        "Node name for S&R": "KSampler"
+      },
+      "widgets_values": [
+        0,
+        "fixed",
+        20,
+        1,
+        "euler",
+        "simple",
+        1
+      ]
+    },
+    {
+      "id": 10,
+      "type": "VAEDecode",
+      "pos": [
+        2440,
+        0
+      ],
+      "size": [
+        220,
+        46
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "samples",
+          "type": "LATENT",
+          "link": 12
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 13
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            14
+          ],
+          "slot_index": 0
+        }
+      ],
+      "title": "VAE Decode",
+      "properties": {
+        "Node name for S&R": "VAEDecode"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 12,
+      "type": "CCN_TilemapAssemble",
+      "pos": [
+        2720,
+        0
+      ],
+      "size": [
+        340,
+        230
+      ],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 14
+        },
+        {
+          "name": "job_json",
+          "type": "STRING",
+          "widget": {
+            "name": "job_json"
+          },
+          "link": 20
+        },
+        {
+          "name": "palette_size",
+          "type": "INT",
+          "widget": {
+            "name": "palette_size"
+          },
+          "link": null
+        },
+        {
+          "name": "columns",
+          "type": "INT",
+          "widget": {
+            "name": "columns"
+          },
+          "link": null
+        },
+        {
+          "name": "spacing",
+          "type": "INT",
+          "widget": {
+            "name": "spacing"
+          },
+          "link": null
+        },
+        {
+          "name": "seam_blend",
+          "type": "FLOAT",
+          "widget": {
+            "name": "seam_blend"
+          },
+          "link": null
+        },
+        {
+          "name": "key_tolerance",
+          "type": "INT",
+          "widget": {
+            "name": "key_tolerance"
+          },
+          "link": null
+        },
+        {
+          "name": "transitions",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "transitions"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "atlas",
+          "type": "IMAGE",
+          "links": [
+            21
+          ],
+          "slot_index": 0
+        },
+        {
+          "name": "alpha",
+          "type": "MASK",
+          "links": [
+            22
+          ],
+          "slot_index": 1
+        },
+        {
+          "name": "tiles",
+          "type": "IMAGE",
+          "links": [
+            24
+          ],
+          "slot_index": 2
+        },
+        {
+          "name": "metadata",
+          "type": "STRING",
+          "links": [
+            23
+          ],
+          "slot_index": 3
+        }
+      ],
+      "title": "Tilemap Assemble",
+      "properties": {
+        "Node name for S&R": "CCN_TilemapAssemble"
+      },
+      "widgets_values": [
+        "",
+        24,
+        8,
+        0,
+        0.25,
+        40,
+        true
+      ]
+    },
+    {
+      "id": 13,
+      "type": "CCN_SaveTilemap",
+      "pos": [
+        3120,
+        0
+      ],
+      "size": [
+        340,
+        130
+      ],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "atlas",
+          "type": "IMAGE",
+          "link": 21
+        },
+        {
+          "name": "alpha",
+          "type": "MASK",
+          "link": 22
+        },
+        {
+          "name": "metadata",
+          "type": "STRING",
+          "widget": {
+            "name": "metadata"
+          },
+          "link": 23
+        },
+        {
+          "name": "filename_prefix",
+          "type": "STRING",
+          "widget": {
+            "name": "filename_prefix"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [],
+      "title": "Save Tilemap",
+      "properties": {
+        "Node name for S&R": "CCN_SaveTilemap"
+      },
+      "widgets_values": [
+        "",
+        "tilemap/tilemap"
+      ]
+    },
+    {
+      "id": 16,
+      "type": "CCN_ImageGridLabeled",
+      "pos": [
+        3120,
+        260
+      ],
+      "size": [
+        340,
+        160
+      ],
+      "flags": {},
+      "order": 13,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 24
+        },
+        {
+          "name": "columns",
+          "type": "INT",
+          "widget": {
+            "name": "columns"
+          },
+          "link": null
+        },
+        {
+          "name": "padding",
+          "type": "INT",
+          "widget": {
+            "name": "padding"
+          },
+          "link": null
+        },
+        {
+          "name": "background",
+          "type": "COMBO",
+          "widget": {
+            "name": "background"
+          },
+          "link": null
+        },
+        {
+          "name": "show_index",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "show_index"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "grid",
+          "type": "IMAGE",
+          "links": [
+            25
+          ],
+          "slot_index": 0
+        }
+      ],
+      "title": "Tile Grid (labeled)",
+      "properties": {
+        "Node name for S&R": "CCN_ImageGridLabeled"
+      },
+      "widgets_values": [
+        8,
+        2,
+        "black",
+        true
+      ]
+    },
+    {
+      "id": 14,
+      "type": "PreviewImage",
+      "pos": [
+        3520,
+        260
+      ],
+      "size": [
+        320,
+        280
+      ],
+      "flags": {},
+      "order": 14,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 25
+        }
+      ],
+      "outputs": [],
+      "title": "Preview Tile Grid",
+      "properties": {
+        "Node name for S&R": "PreviewImage"
+      },
+      "widgets_values": []
+    }
+  ],
+  "links": [
+    [
+      1,
+      3,
+      0,
+      4,
+      0,
+      "MODEL"
+    ],
+    [
+      2,
+      3,
+      1,
+      4,
+      1,
+      "CLIP"
+    ],
+    [
+      3,
+      4,
+      0,
+      5,
+      0,
+      "MODEL"
+    ],
+    [
+      4,
+      4,
+      1,
+      5,
+      1,
+      "CLIP"
+    ],
+    [
+      5,
+      5,
+      1,
+      6,
+      1,
+      "CLIP"
+    ],
+    [
+      6,
+      5,
+      1,
+      15,
+      1,
+      "CLIP"
+    ],
+    [
+      7,
+      6,
+      0,
+      7,
+      0,
+      "CONDITIONING"
+    ],
+    [
+      8,
+      5,
+      0,
+      9,
+      0,
+      "MODEL"
+    ],
+    [
+      9,
+      7,
+      0,
+      9,
+      6,
+      "CONDITIONING"
+    ],
+    [
+      10,
+      15,
+      0,
+      9,
+      7,
+      "CONDITIONING"
+    ],
+    [
+      11,
+      8,
+      0,
+      9,
+      8,
+      "LATENT"
+    ],
+    [
+      12,
+      9,
+      0,
+      10,
+      0,
+      "LATENT"
+    ],
+    [
+      13,
+      3,
+      2,
+      10,
+      1,
+      "VAE"
+    ],
+    [
+      14,
+      10,
+      0,
+      12,
+      0,
+      "IMAGE"
+    ],
+    [
+      15,
+      1,
+      0,
+      2,
+      0,
+      "STRING"
+    ],
+    [
+      16,
+      2,
+      0,
+      6,
+      0,
+      "STRING"
+    ],
+    [
+      17,
+      2,
+      1,
+      8,
+      0,
+      "INT"
+    ],
+    [
+      18,
+      2,
+      2,
+      8,
+      1,
+      "INT"
+    ],
+    [
+      19,
+      2,
+      3,
+      9,
+      1,
+      "INT"
+    ],
+    [
+      20,
+      2,
+      4,
+      12,
+      1,
+      "STRING"
+    ],
+    [
+      21,
+      12,
+      0,
+      13,
+      0,
+      "IMAGE"
+    ],
+    [
+      22,
+      12,
+      1,
+      13,
+      1,
+      "MASK"
+    ],
+    [
+      23,
+      12,
+      3,
+      13,
+      2,
+      "STRING"
+    ],
+    [
+      24,
+      12,
+      2,
+      16,
+      0,
+      "IMAGE"
+    ],
+    [
+      25,
+      16,
+      0,
+      14,
+      0,
+      "IMAGE"
+    ]
+  ],
+  "groups": [
+    {
+      "id": 1,
+      "title": "Models",
+      "bounding": [
+        20,
+        -60,
+        1180,
+        220
+      ],
+      "color": "#3f789e",
+      "font_size": 24,
+      "flags": {}
+    },
+    {
+      "id": 2,
+      "title": "Plan + expand (edit prompt, tile_size, max_tiles, model, seed, cell_px)",
+      "bounding": [
+        20,
+        330,
+        880,
+        440
+      ],
+      "color": "#8A8",
+      "font_size": 24,
+      "flags": {}
+    },
+    {
+      "id": 3,
+      "title": "Conditioning",
+      "bounding": [
+        1220,
+        -60,
+        800,
+        640
+      ],
+      "color": "#b58b2a",
+      "font_size": 24,
+      "flags": {}
+    },
+    {
+      "id": 4,
+      "title": "Sampling + decode",
+      "bounding": [
+        2040,
+        -60,
+        640,
+        400
+      ],
+      "color": "#a1309b",
+      "font_size": 24,
+      "flags": {}
+    },
+    {
+      "id": 5,
+      "title": "Assemble + output (columns, palette_size, ...)",
+      "bounding": [
+        2700,
+        -60,
+        1160,
+        640
+      ],
+      "color": "#3a8f6e",
+      "font_size": 24,
+      "flags": {}
+    }
+  ],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 0.5,
+      "offset": [
+        40,
+        160
+      ]
+    }
+  },
+  "version": 0.4
+}
