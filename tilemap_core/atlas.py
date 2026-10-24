@@ -4,7 +4,7 @@ Pure numpy + stdlib, deterministic, no I/O. The atlas is a fixed grid of
 ``columns`` cells of ``n x n`` pixels, ``spacing`` transparent pixels apart; a
 tile covers ``cells_w x cells_h`` cells (single tile = 1x1). ``pack`` places
 items first-fit row-major, ``assemble`` copies their RGBA cells, ``build_metadata``
-describes the result (``format`` ``ccn-tilemap/1``), ``verify_atlas`` re-derives
+describes the result (``format`` ``ccn-tilemap/2``), ``verify_atlas`` re-derives
 every invariant from the pixels. Arguments are validated (``ValueError`` with a
 readable message) and never mutated.
 """
@@ -15,18 +15,18 @@ from typing import Mapping, Sequence
 import numpy as np
 
 from . import sanitize
+from .atlas_meta import FORMAT, check_extra, read_format, tile_provenance  # FORMAT re-exported as atlas.FORMAT
 from .pixelize import TILE_SIZES
 from .plan_schema import CATEGORIES
 
 __all__ = ["FORMAT", "pack", "assemble", "build_metadata", "verify_atlas"]
 
-FORMAT = "ccn-tilemap/1"
 _COLUMNS = (1, 64)
 _SPACING = (0, 16)
 _CELLS_MAX = 8  # footprint cells per side (plans use <= 4)
 _ITEMS_MAX = 512
 _PIXELS_MAX = 1 << 26  # 8192 x 8192
-_CARRY = ("id", "name", "category", "variant", "wang")  # descriptor keys pack passes through
+_CARRY = ("id", "name", "category", "variant", "wang", "prompt", "seed", "attempt", "source", "job_index")  # keys pack passes through
 
 
 def _int(value: object, name: str, lo: int, hi: int) -> int:
@@ -184,22 +184,26 @@ def _tile_record(index: int, p: Mapping, n: int, spacing: int) -> dict:
         "category": p["category"], "variant": variant, "tileable": p["category"] == "ground" and wang is None,
         "footprint": [cw, ch], "x": col * step, "y": row * step,
         "w": cw * n if spacing == 0 else n, "h": ch * n if spacing == 0 else n,
-        "cells": _cells(col, row, cw, ch, step), "wang": wang,
+        "cells": _cells(col, row, cw, ch, step), "wang": wang, **tile_provenance(p, key),
     }  # fmt: skip
 
 
 def build_metadata(
     placements: Sequence[Mapping], n: int, columns: int, spacing: int, palette: np.ndarray,
-    view: str = "", model: str = "", seed: int = 0, theme: str = "",
+    view: str = "", model: str = "", seed: int = 0, theme: str = "", extra: dict = None,
 ) -> dict:  # fmt: skip
-    """Return the metadata dict (``format`` ``ccn-tilemap/1``) for packed ``placements``.
+    """Return the metadata dict (``format`` ``ccn-tilemap/2``) for packed ``placements``.
 
     Placement needs ``id`` (slug), ``variant`` (0..255), ``category``; optional
     ``name`` (``clean_text``, default id) and ``wang`` (``None`` or ``{a, b,
     corners}``). ``tileable`` is derived (ground, not Wang). With ``spacing`` 0,
     ``x, y, w, h`` cover the whole footprint, otherwise cell 0; ``cells`` lists
     every cell. ``view``/``model``/``theme`` are cleaned; result is JSON-safe.
+    ``extra`` (see ``atlas_meta.check_extra``) is merged after the ``/1`` keys; a
+    placement carrying ``prompt/seed/attempt/source/job_index`` adds those and
+    ``key`` to its tile record (``atlas_meta.tile_provenance``).
     """
+    extra = check_extra(extra)
     n, columns, spacing = _geometry(n, columns, spacing)
     rows = _check_placements(placements, columns)
     height, width = _dims(rows, columns, n, spacing)
@@ -210,7 +214,7 @@ def build_metadata(
         "format": FORMAT, "tile_size": n, "columns": columns, "rows": rows, "spacing": spacing,
         "width": width, "height": height, "view": sanitize.clean_text(view, 40),
         "model": sanitize.clean_text(model, 100), "seed": _int(seed, "seed", 0, 2**64 - 1),
-        "theme": sanitize.clean_text(theme, 80), "palette": _hex_palette(palette), "tiles": tiles,
+        "theme": sanitize.clean_text(theme, 80), "palette": _hex_palette(palette), "tiles": tiles, **extra,
     }  # fmt: skip
 
 
@@ -261,8 +265,7 @@ def verify_atlas(rgba: np.ndarray, meta: Mapping, palette: np.ndarray, palette_s
     """
     if not isinstance(rgba, np.ndarray) or rgba.dtype != np.uint8 or rgba.ndim != 3 or rgba.shape[2] != 4:
         raise ValueError("atlas must be a uint8 array of shape HxWx4")
-    if not isinstance(meta, Mapping) or meta.get("format") != FORMAT:
-        raise ValueError(f"metadata format must be {FORMAT!r}")
+    read_format(meta)  # accepts ccn-tilemap/1 and /2, ValueError otherwise
     n, columns, spacing = _geometry(meta.get("tile_size"), meta.get("columns"), meta.get("spacing"))
     rows = _int(meta.get("rows"), "rows", 1, _ITEMS_MAX * _CELLS_MAX)
     height, width = _dims(rows, columns, n, spacing)

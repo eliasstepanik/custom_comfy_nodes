@@ -23,6 +23,7 @@ __all__ = [
     "extract_json",
     "validate_plan",
     "parse_and_validate",
+    "validate_extension",
 ]
 
 MAX_RAW_CHARS = 65536
@@ -252,3 +253,48 @@ def validate_plan(obj: dict, max_tiles: int) -> dict:
 def parse_and_validate(text: str, max_tiles: int) -> dict:
     """``extract_json`` then ``validate_plan``: raw LLM reply -> normalised plan."""
     return validate_plan(extract_json(text), max_tiles)
+
+
+def validate_extension(existing: dict, addition: dict, max_tiles: int) -> tuple:
+    """Check extension ``addition`` against ``existing`` (same theme; a known id may only raise ``variants``;
+    no repeated transition pair; merged plan valid for ``max_tiles``); return ``(merged_plan, new "id#variant" keys)``."""
+    if isinstance(max_tiles, bool) or not isinstance(max_tiles, int) or max_tiles < 1:
+        raise ValueError("max_tiles must be an integer >= 1")
+    base = validate_plan(existing, MAX_JOBS)
+    if not isinstance(addition, dict):
+        raise PlanError(f"extension must be a JSON object, got {_show(addition)}")
+    if "theme" not in addition or _text(addition["theme"], "theme", _THEME_MAX) != base["theme"]:
+        raise PlanError(f"theme: must equal the existing theme {_show(base['theme'])}")
+    raw = addition.get("tiles") or []
+    if not isinstance(raw, list):
+        raise PlanError(f"tiles: must be a list of tile objects, got {_show(raw)}")
+    tiles = [dict(t) for t in base["tiles"]]
+    known, old, seen = {t["id"]: t for t in tiles}, {t["id"]: t["variants"] for t in tiles}, set()
+    for i, item in enumerate(raw):
+        tile, path = _tile(item, f"tiles[{i}]"), f"tiles[{i}]"
+        prev, tid = known.get(tile["id"]), tile["id"]
+        if tid in seen:
+            raise PlanError(f"{path}.id: duplicate id {_show(tid)}; ids must be unique")
+        seen.add(tid)
+        if prev is None:
+            known[tid] = tile
+            tiles.append(tile)
+            continue
+        if (tile["category"], tile["name"]) != (prev["category"], prev["name"]) or (
+            item.get("footprint") is not None and tile["footprint"] != prev["footprint"]
+        ):
+            raise PlanError(f"{path}: cannot redefine category, name or footprint of {_show(tid)}")
+        if tile["variants"] <= prev["variants"]:
+            raise PlanError(f"{path}.variants: {_show(tid)} has {prev['variants']}; give a larger total")
+        prev["variants"] = tile["variants"]
+    grounds = {t["id"] for t in tiles if t["category"] == "ground"}
+    pairs = _transitions(addition.get("transitions"), grounds, set(known))
+    have = {frozenset(p) for p in base["transitions"]}
+    for i, pair in enumerate(pairs):
+        if frozenset(pair) in have:
+            raise PlanError(f"transitions[{i}]: pair {_show(pair[0])}, {_show(pair[1])} already exists")
+    if not (seen or pairs):
+        raise PlanError("extension adds nothing: give new tiles, more variants or new transitions")
+    merged = validate_plan({"theme": base["theme"], "tiles": tiles, "transitions": base["transitions"] + pairs}, max_tiles)
+    return merged, [f"{t['id']}#{v}" for c in CATEGORIES for t in merged["tiles"] if t["category"] == c
+                    for v in range(old.get(t["id"], 0), t["variants"])]

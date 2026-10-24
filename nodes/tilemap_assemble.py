@@ -1,35 +1,32 @@
 """``CCN_TilemapAssemble``: turn the Flux images of a tile job list into one pixel-exact RGBA atlas.
 
-Inputs are the per-job images (a list, one tensor per job, in job order) and the ``job_json`` string
-from ``CCN_TilemapExpand``. Per job the image is cropped/resized to the work size, ground tiles are made
-seamless, objects/overlays get a keyed alpha, then one shared palette is built over all tiles and every
-tile is snapped to it and block-reduced to ``tile_size`` pixels per cell. Wang corner transitions are
-generated for the plan's ground pairs, everything is packed and verified before it is returned.
-
-``job_json`` arrives through a STRING socket, so it is untrusted: it is parsed strictly, the plan is
-re-validated and the job list must equal the one the plan expands to. Errors never echo raw payload text.
-No network, no file IO.
+Thin wrapper over ``tilemap_core.snap`` and ``tilemap_core.atlas`` (metadata ``ccn-tilemap/2``).
+``job_json.snap`` overrides the widgets. With ``job_json.base`` plus ``base_atlas``/``base_alpha`` the base
+tiles without an image stay byte-identical, the palette stays fixed (plus ``snap.extra_colours``) and new
+tiles are appended; ``spacing`` must equal the base atlas spacing. ``job_json`` is untrusted: parsed
+strictly, plan re-validated, job list must equal the plan's (minus kept base tiles). No network/file IO.
 """
 
 from __future__ import annotations
 
 import json
 import math
+import re
 
 import numpy as np
 import torch
 
-from ..tilemap_core import atlas, pixelize, plan_prompt, plan_schema
+from ..tilemap_core import atlas, palette_extend, pixelize, plan_prompt, plan_schema, tileset_io
 from ..tilemap_core import expand as tile_expand
-from ..tilemap_core import transitions as wang
-from ._tensor_io import alpha_to_mask, image_list_to_np, np_to_image
+from ..tilemap_core import snap as tsnap
+from ._tensor_io import alpha_to_mask, image_list_to_np, mask_to_alpha, np_to_image
 
 CATEGORY = "custom_comfy_nodes/tilemap"
 _JOB_JSON_MAX = 400_000
 _SEED_LIMIT = 2**64
 _JOB_KEYS = ("tile_id", "category", "variant", "footprint")
-_WANG_VARIANTS = 16
 _IMAGE_PIXELS_MAX = 2048 * 2048  # per Flux image (jobs are <= 1024 px a side); larger is rejected
+_HEX = re.compile(r"#[0-9a-f]{6}")
 _FIX = "reconnect job_json from CCN_TilemapExpand"
 
 
@@ -42,37 +39,12 @@ def _one(value: object, name: str) -> object:
     return value
 
 
-def _int_in(value: object, name: str, lo: int, hi: int) -> int:
-    """Strict widget integer: a real int (no bool/float) inside ``lo..hi``."""
-    if type(value) is not int or not lo <= value <= hi:
-        raise ValueError(f"{name} must be an integer from {lo} to {hi}")
-    return value
-
-
-def _float_in(value: object, name: str, lo: float, hi: float) -> float:
-    """Strict widget float: int or float (no bool), finite, inside ``lo..hi``."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ValueError(f"{name} must be a number from {lo} to {hi}")
-    if not math.isfinite(value) or not lo <= value <= hi:
-        raise ValueError(f"{name} must be a number from {lo} to {hi}")
-    return float(value)
-
-
-def _no_dup(pairs: list) -> dict:
-    out = dict(pairs)
-    if len(out) != len(pairs):
-        raise ValueError("duplicate key")
-    return out
-
-
-def _parse_int(text: str) -> int:
-    if len(text) > 20:
-        raise ValueError("integer too long")
-    return int(text)
-
-
-def _reject_constant(_name: str) -> None:
-    raise ValueError("non-finite number")
+def _num(value: object, name: str, lo: float, hi: float, real: bool = False) -> float:
+    """Strict widget number: a real int (or finite int/float when ``real``), never a bool, inside ``lo..hi``."""
+    ok = isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) if real else type(value) is int
+    if not ok or not lo <= value <= hi:
+        raise ValueError(f"{name} must be {'a number' if real else 'an integer'} from {lo} to {hi}")
+    return float(value) if real else value
 
 
 def _load_json(text: object) -> dict:
@@ -81,7 +53,7 @@ def _load_json(text: object) -> dict:
     if len(text) > _JOB_JSON_MAX:
         raise ValueError(f"job_json is too long ({len(text)} chars, limit {_JOB_JSON_MAX}); {_FIX}")
     try:
-        data = json.loads(text, object_pairs_hook=_no_dup, parse_int=_parse_int, parse_constant=_reject_constant)
+        data = json.loads(text, object_pairs_hook=tileset_io._no_dup, parse_int=tileset_io._int_text, parse_constant=tileset_io._reject_constant)
     except (ValueError, RecursionError):
         raise ValueError(f"job_json is not valid JSON; {_FIX}") from None
     if not isinstance(data, dict):
@@ -95,8 +67,31 @@ def _signature(jobs: list) -> str:
     return json.dumps(rows, sort_keys=True)
 
 
-def _parse_jobs(text: object) -> tuple:
-    """Return ``(tile_size, plan, jobs, base_seed)`` from an untrusted ``job_json``; ``jobs`` is re-derived."""
+def _key(j: object) -> str:
+    return f"{j.get('tile_id')}#{j.get('variant')}" if isinstance(j, dict) else ""
+
+
+def _item(j: dict) -> dict:
+    return {"key": _key(j), "cells_w": j["footprint"][0], "cells_h": j["footprint"][1], "id": j["tile_id"],
+            "name": j["name"], "category": j["category"], "variant": j["variant"], "wang": None}
+
+
+def _check_base(base: object) -> object:
+    """``job_json.base`` is ``None`` or exactly ``{path, keys, palette, snap}`` with well-formed values."""
+    ok = base is None or isinstance(base, dict) and set(base) == {"path", "keys", "palette", "snap"}
+    if ok and base:
+        path, keys, pal = base["path"], base["keys"], base["palette"]
+        ok = isinstance(path, str) and 1 <= len(path) <= 256 and isinstance(base["snap"], dict)
+        ok = ok and isinstance(keys, list) and 1 <= len(keys) <= 512 and all(isinstance(k, str) for k in keys)
+        ok = ok and len(set(keys)) == len(keys) and isinstance(pal, list) and 1 <= len(pal) <= 256
+        ok = ok and all(isinstance(h, str) and _HEX.fullmatch(h) for h in pal)
+    if not ok:
+        raise ValueError(f"job_json base is malformed; {_FIX}")
+    return base
+
+
+def _parse_jobs(text: object) -> dict:
+    """Parse an untrusted ``job_json``; ``jobs`` are the plan's re-derived jobs that need an image."""
     data = _load_json(text)
     size = data.get("tile_size")
     if type(size) is not int or size not in tile_expand.TILE_SIZES:
@@ -108,27 +103,33 @@ def _parse_jobs(text: object) -> tuple:
         plan = plan_schema.validate_plan(data.get("plan"), plan_schema.MAX_JOBS)
     except plan_schema.PlanError:
         raise ValueError(f"job_json plan failed validation; {_FIX}") from None
+    base = _check_base(data.get("base"))
+    style, cell_px, model = data.get("style_prefix", ""), data.get("cell_px", 512), data.get("model", "")
+    snap, review = data.get("snap", {}), data.get("review")
+    if not isinstance(style, str) or type(cell_px) is not int or not isinstance(model, str) or not isinstance(snap, dict):
+        raise ValueError(f"job_json style_prefix, cell_px, model or snap is invalid; {_FIX}")
+    if review is not None and not isinstance(review, dict):
+        raise ValueError(f"job_json review must be an object; {_FIX}")
     expected = tile_expand.expand_jobs(plan, size, view, "", 0)
-    jobs = data.get("jobs")
+    rows = data.get("jobs")
+    got = {_key(r) for r in rows} if isinstance(rows, list) else set()
+    kept = set(base["keys"]) if base else set()
     try:
-        matches = isinstance(jobs, list) and _signature(jobs) == _signature(expected)
+        matches = isinstance(rows, list) and _signature(rows) == _signature([j for j in expected if _key(j) in got])
     except RecursionError:
         matches = False
-    if not matches:
+    if not matches or any(_key(j) not in got and _key(j) not in kept for j in expected):
         raise ValueError(f"job_json jobs do not match its plan; {_FIX}")
-    seed = jobs[0].get("seed")
+    seed = data.get("seed")
+    if seed is None and rows and type(rows[0].get("seed")) is int and type(rows[0].get("index", 0)) is int:
+        seed = rows[0]["seed"] - rows[0].get("index", 0)  # job seed = base_seed + index (also after filter_new)
     if type(seed) is not int or not 0 <= seed < _SEED_LIMIT:
         raise ValueError(f"job_json job seed must be an integer from 0 to {_SEED_LIMIT - 1}; {_FIX}")
-    return size, view, plan, expected, seed
-
-
-def _wang_id(a: str, b: str, taken: set) -> str:
-    """Return ``a_b``; raise if a plan tile or an earlier Wang pair already owns that id."""
-    wid = f"{a}_{b}"
-    if wid in taken:
-        raise ValueError(f"transition {a}+{b}: Wang tile id {wid!r} collides with another tile id; rename a tile")
-    taken.add(wid)
-    return wid
+    full = tile_expand.expand_jobs(plan, size, view, style, seed, cell_px)
+    return {"size": size, "view": view, "plan": plan, "base": base, "snap": snap, "review": review, "seed": seed,
+            "style": style, "cell_px": cell_px, "model": model, "rows": {_key(r): r for r in rows},
+            "want": {_key(j): j for j in expected}, "full": {_key(j): j for j in full},
+            "jobs": [j for j in expected if _key(j) in got]}
 
 
 def _image_rgb(img: object, i: int) -> np.ndarray:
@@ -143,60 +144,63 @@ def _image_rgb(img: object, i: int) -> np.ndarray:
         raise ValueError(f"image {i}: {exc}") from None
 
 
-def _snap_tiles(images: list, jobs: list, size: int, palette_size: int, blend: float, tol: int) -> tuple:
-    """Pixelize every job image; return ``(cell_images by key, palette)``."""
+def _works(rgbs: list, jobs: list, size: int, p: dict) -> tuple:
+    """Work images and alpha grids of the new tiles, built as ``snap_tiles`` builds them (palette extension)."""
     works, alphas = [], []
-    for i, (job, img) in enumerate(zip(jobs, images)):
-        rgb = _image_rgb(img, i)
-        cw, ch = job["footprint"]
-        work = pixelize.to_work(rgb, cw, ch, size)
-        del rgb
+    for rgb, job in zip(rgbs, jobs):
+        work = pixelize.to_work(rgb, *job["footprint"], size)
         grid = (work.shape[0] // pixelize.WORK_SCALE, work.shape[1] // pixelize.WORK_SCALE)
         if job["category"] == "ground":
-            work = pixelize.make_seamless(work, blend)
-            alpha = np.ones(grid, bool)
+            work, alpha = pixelize.make_seamless(work, p["seam_blend"]), np.ones(grid, bool)
         else:
-            alpha = pixelize.key_alpha(work, grid, tol)
+            alpha = pixelize.key_alpha(work, grid, p["key_tolerance"])
         works.append(work)
         alphas.append(alpha)
-    palette = pixelize.build_palette(works, alphas, palette_size)
+    return works, alphas
+
+
+def _base_cells(P: dict, atlas_img: object, mask: object, spacing: int) -> tuple:
+    """Slice the base atlas by replaying the pack of ``base.keys``; return ``(items, cells, columns)``."""
+    n, plan = P["size"], P["plan"]
+    descs = {k: _item(j) for k, j in P["want"].items()}
+    dummy = {f"{t['id']}#0": np.full((n, n, 4), 255, np.uint8) for t in plan["tiles"]}  # Wang keys/shapes only (opaque ground)
+    descs.update({w["key"]: w for w in tsnap.wang_items(plan, dummy, P["seed"], n)[0]})
+    unknown = [k for k in P["base"]["keys"] if k not in descs]
+    if unknown:
+        raise ValueError(f"job_json base keys are not in its plan: {unknown[:5]}; {_FIX}")
+    rgb = image_list_to_np(_one(atlas_img, "base_atlas")[:1], 3, True)[0]
+    alpha = mask_to_alpha(_one(mask, "base_alpha"))
+    if alpha.shape != rgb.shape[:2]:
+        raise ValueError("base_alpha must have the same width and height as base_atlas")
+    rgba, step = np.dstack([rgb, alpha]), n + spacing
+    cols, rem = divmod(rgba.shape[1] + spacing, step)
+    if rem or cols < 1:
+        raise ValueError("base_atlas width does not fit tile_size and spacing")
+    items = [descs[k] for k in P["base"]["keys"]]
+    placed = atlas.pack(items, cols)
     cells = {}
-    for i, job in enumerate(jobs):
-        idx = pixelize.index_image(works[i], palette)
-        cells[f"{job['tile_id']}#{job['variant']}"] = pixelize.block_reduce(idx, alphas[i], palette)
-        works[i] = alphas[i] = None  # free the big intermediates as we go
-    return cells, palette
+    for p in placed:
+        img = np.zeros((p["cells_h"] * n, p["cells_w"] * n, 4), np.uint8)
+        for j in range(p["cells_h"]):
+            for i in range(p["cells_w"]):
+                y, x = (p["row"] + j) * step, (p["col"] + i) * step
+                img[j * n : (j + 1) * n, i * n : (i + 1) * n] = rgba[y : y + n, x : x + n]
+        cells[p["key"]] = img
+    if not np.array_equal(atlas.assemble(placed, cells, n, cols, spacing), rgba) or any(c[..., 3].min() < 255 for k, c in cells.items() if descs[k]["category"] == "ground"):
+        raise ValueError("base_atlas does not match the job_json base keys (layout or stray pixels)")
+    return items, cells, cols
 
 
-def _wang_items(plan: dict, cells: dict, seed: int, n: int) -> tuple:
-    """Return ``(items, cell images)`` for the 16 Wang tiles of every plan transition."""
-    taken = {t["id"] for t in plan["tiles"]}
-    items, images = [], {}
-    for pair_no, (a, b) in enumerate(plan["transitions"]):
-        wid = _wang_id(a, b, taken)
-        tiles = wang.wang_tiles(cells[f"{a}#0"], cells[f"{b}#0"], n, (seed + pair_no) % _SEED_LIMIT)
-        for mask, (corners, rgba) in enumerate(tiles):
-            key = f"{wid}#{mask}"
-            wang_info = {"a": a, "b": b, "corners": list(corners)}
-            items.append(
-                {
-                    "key": key, "cells_w": 1, "cells_h": 1, "id": wid, "name": f"{a} to {b} {mask}",
-                    "category": "ground", "variant": mask, "wang": wang_info,
-                }
-            )
-            images[key] = rgba
-    return items, images
-
-
-def _preview_cells(placements: list, cell_images: dict, n: int) -> list:
-    """All n x n cells (RGB) in placement order, row-major inside a footprint."""
-    out = []
-    for p in placements:
-        img = cell_images[p["key"]]
-        for r in range(p["cells_h"]):
-            for c in range(p["cells_w"]):
-                out.append(img[r * n : (r + 1) * n, c * n : (c + 1) * n, :3])
-    return out
+def _provenance(P: dict, items: list, new: set, bkeys: set) -> None:
+    """Add prompt/seed/attempt/source/job_index to every item (Wang tiles: no prompt, the transition seed)."""
+    trans = [list(t) for t in P["plan"]["transitions"]]
+    for it in items:
+        key, w = it["key"], it["wang"]
+        r = {} if w else {**P["full"][key], **P["rows"].get(key, {})}
+        it.update(prompt=r.get("prompt"), attempt=r.get("attempt", 0),
+                  seed=(P["seed"] + trans.index([w["a"], w["b"]])) % _SEED_LIMIT if w else r["seed"],
+                  job_index=None if w else P["want"][key]["index"],
+                  source=("regenerated" if key in bkeys else "generated") if key in new else "kept")
 
 
 class CCN_TilemapAssemble:
@@ -216,7 +220,8 @@ class CCN_TilemapAssemble:
                 "seam_blend": ("FLOAT", {"default": 0.25, "min": 0.0, "max": 0.5, "step": 0.05}),
                 "key_tolerance": ("INT", {"default": 40, "min": 0, "max": 255, "step": 1}),
                 "transitions": ("BOOLEAN", {"default": True}),
-            }
+            },
+            "optional": {"base_atlas": ("IMAGE",), "base_alpha": ("MASK",)},
         }
 
     RETURN_TYPES = ("IMAGE", "MASK", "IMAGE", "STRING")
@@ -225,49 +230,69 @@ class CCN_TilemapAssemble:
     CATEGORY = CATEGORY
 
     def assemble(
-        self, images: list, job_json: list, palette_size: list, columns: list, spacing: list,
-        seam_blend: list, key_tolerance: list, transitions: list,
+        self, images, job_json, palette_size, columns, spacing, seam_blend, key_tolerance, transitions,
+        base_atlas=None, base_alpha=None,
     ) -> tuple:
-        psize = _int_in(_one(palette_size, "palette_size"), "palette_size", 4, 64)
-        columns = _int_in(_one(columns, "columns"), "columns", 1, 64)
-        spacing = _int_in(_one(spacing, "spacing"), "spacing", 0, 16)
-        blend = _float_in(_one(seam_blend, "seam_blend"), "seam_blend", 0.0, 0.5)
-        tol = _int_in(_one(key_tolerance, "key_tolerance"), "key_tolerance", 0, 255)
-        with_wang = _one(transitions, "transitions")
-        if not isinstance(with_wang, bool):
+        widgets = {"palette_size": _num(_one(palette_size, "palette_size"), "palette_size", 4, 64),
+                   "seam_blend": _num(_one(seam_blend, "seam_blend"), "seam_blend", 0.0, 0.5, True),
+                   "key_tolerance": _num(_one(key_tolerance, "key_tolerance"), "key_tolerance", 0, 255),
+                   "transitions": _one(transitions, "transitions")}
+        columns, spacing = _num(_one(columns, "columns"), "columns", 1, 64), _num(_one(spacing, "spacing"), "spacing", 0, 16)
+        if not isinstance(widgets["transitions"], bool):
             raise ValueError("transitions must be a boolean")
-        size, view, plan, jobs, seed = _parse_jobs(_one(job_json, "job_json"))
+        P = _parse_jobs(_one(job_json, "job_json"))
+        base, size, plan, seed, jobs = P["base"], P["size"], P["plan"], P["seed"], P["jobs"]
+        given = (base_atlas is not None) + (base_alpha is not None)
+        if given == 1 or (given == 2) != (base is not None):
+            raise ValueError("connect base_atlas and base_alpha together, and only when job_json has a base")
+        p = tsnap.check_snap_params({**widgets, **(base["snap"] if base else {}), **P["snap"]})
         images = list(images) if isinstance(images, (list, tuple)) else [images]
         if len(images) != len(jobs):
             raise ValueError(f"got {len(images)} images for {len(jobs)} jobs; connect one image per job in job order")
-        cells, palette = _snap_tiles(images, jobs, size, psize, blend, tol)
-        items = [
-            {
-                "key": f"{j['tile_id']}#{j['variant']}", "cells_w": j["footprint"][0], "cells_h": j["footprint"][1],
-                "id": j["tile_id"], "name": j["name"], "category": j["category"], "variant": j["variant"],
-                "wang": None,
-            }
-            for j in jobs
-        ]
-        wang_count = 0
-        if with_wang:
-            wang_items, wang_images = _wang_items(plan, cells, seed, size)
-            items += wang_items
-            cells.update(wang_images)
-            wang_count = len(plan["transitions"]) * _WANG_VARIANTS
+        rgbs = [_image_rgb(img, i) for i, img in enumerate(images)]
+        keep, got = p["palette_mode"] == "keep", {_key(j) for j in jobs}
+        bitems, kept, bcols, bkeys, palette = [], {}, None, set(), None
+        if base:
+            bitems, bcells, bcols = _base_cells(P, base_atlas, base_alpha, spacing)
+            bkeys = set(base["keys"])
+            if keep:
+                kept = {k: c for k, c in bcells.items() if k not in got}
+                palette = np.array([[int(h[i : i + 2], 16) for i in (1, 3, 5)] for h in base["palette"]], np.uint8)
+            elif any(k not in got for k in P["want"]):
+                raise ValueError("palette_mode 'refit' needs an image for every tile of the plan")
+        if jobs and palette is not None and p["extra_colours"]:
+            palette = palette_extend.extend_palette(palette, *_works(rgbs, jobs, size, p), p["extra_colours"])
+        cells, palette = tsnap.snap_tiles(rgbs, jobs, size, p, palette) if jobs else ({}, palette)
+        cells.update(kept)
+        adds = [j for j in jobs if _key(j) not in bkeys]
+        if base:
+            adds.sort(key=lambda j: (plan_schema.CATEGORIES.index(j["category"]), j["tile_id"], j["variant"]))
+        items, new, wadds = bitems + [_item(j) for j in adds], set(got), []
+        if p["transitions"]:
+            witems, wimgs = tsnap.wang_items(plan, cells, seed, size)
+            for w in witems:
+                if w["key"] in kept and not {f"{w['wang']['a']}#0", f"{w['wang']['b']}#0"} & got:
+                    continue  # pixels of an untouched base set are reused
+                cells[w["key"]] = wimgs[w["key"]]
+                new.add(w["key"])
+                wadds += [w] if w["key"] not in bkeys else []
+        items = [it for it in items + wadds if it["key"] in cells]
+        _provenance(P, items, new, bkeys)
         placements = atlas.pack(items, columns)
         rgba = atlas.assemble(placements, cells, size, columns, spacing)
-        meta = atlas.build_metadata(placements, size, columns, spacing, palette, view, "", seed, plan["theme"])
-        if len(meta["tiles"]) != len(jobs) + wang_count:
-            raise RuntimeError(f"atlas has {len(meta['tiles'])} tiles, expected {len(jobs) + wang_count}")
-        atlas.verify_atlas(rgba, meta, palette, psize)
-        previews = _preview_cells(placements, cells, size)
-        return (
-            np_to_image([rgba]),
-            alpha_to_mask(rgba[..., 3]),
-            np_to_image(previews),
-            json.dumps(meta, sort_keys=True, separators=(",", ":")),
-        )
+        extra = {"style_prefix": P["style"], "cell_px": P["cell_px"], "plan": plan, "snap": p}
+        extra.update({} if P["review"] is None else {"review": P["review"]})
+        if base:
+            mode = "restyle" if not keep else "extend" if (adds or wadds) else "improve"
+            extra["lineage"] = {"parent": base["path"], "mode": mode, "generation": 1, **({"repacked": True} if columns != bcols else {}),
+                                **({} if keep else {"palette_refit": True})}
+        meta = atlas.build_metadata(placements, size, columns, spacing, palette, P["view"], P["model"], seed, plan["theme"], extra)
+        if len(meta["tiles"]) != len(items):
+            raise RuntimeError(f"atlas has {len(meta['tiles'])} tiles, expected {len(items)}")
+        atlas.verify_atlas(rgba, meta, palette, 256 if base else p["palette_size"])
+        previews = tsnap.preview_cells(placements, cells, size)
+        return (np_to_image([rgba]), alpha_to_mask(rgba[..., 3]), np_to_image(previews),
+                json.dumps(meta, sort_keys=True, separators=(",", ":")))
 
 
 NODE_CLASS_MAPPINGS = {"CCN_TilemapAssemble": CCN_TilemapAssemble}

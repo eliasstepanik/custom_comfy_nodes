@@ -5,11 +5,13 @@ Pure stdlib, deterministic, no I/O. ``expand_jobs`` re-validates the plan with
 bad values into a prompt) and never mutates its input.
 """
 
+from copy import deepcopy
+
 from . import sanitize
 from .plan_prompt import VIEWS
 from .plan_schema import CATEGORIES, validate_plan
 
-__all__ = ["TILE_SIZES", "CATEGORY_SUFFIX", "expand_jobs"]
+__all__ = ["TILE_SIZES", "CATEGORY_SUFFIX", "expand_jobs", "filter_new"]
 
 TILE_SIZES = (8, 16, 24, 32, 48, 64)
 
@@ -113,3 +115,45 @@ def expand_jobs(
                     }
                 )
     return jobs
+
+
+def filter_new(jobs: list, new_keys: object) -> list:
+    """Keep only the jobs of an extension: those whose ``"<tile_id>#<variant>"`` key is in ``new_keys``.
+
+    ``jobs`` is the ``expand_jobs`` result for the merged plan and ``new_keys`` the key list from
+    ``plan_schema.validate_extension``. The ``len(jobs) - len(kept)`` base jobs come first in the stored
+    tileset, so the kept jobs are re-indexed from that count upwards (job order is kept) and their
+    ``seed`` moves by the same offset: ``seed = (base_seed + index) % 2**64`` still holds and no kept job
+    reuses a stored base index. Inputs are not mutated; returned jobs are fresh copies.
+
+    Raises ``ValueError`` if ``jobs`` is not a list of job dicts, ``new_keys`` is not a collection of
+    ``str`` (a bare string is refused), or a key in ``new_keys`` matches no job.
+    """
+    if not isinstance(jobs, list):
+        raise ValueError(f"jobs must be a list, got {type(jobs).__name__}")
+    if isinstance(new_keys, (str, bytes)) or not hasattr(new_keys, "__iter__"):
+        raise ValueError(f"new_keys must be a collection of 'id#variant' strings, got {type(new_keys).__name__}")
+    listed = list(new_keys)
+    if not all(isinstance(k, str) for k in listed):
+        raise ValueError("new_keys must contain only strings")
+    wanted = set(listed)
+    keyed = []
+    for job in jobs:
+        if not isinstance(job, dict):
+            raise ValueError(f"every job must be a dict, got {type(job).__name__}")
+        index, seed = job.get("index"), job.get("seed")
+        if any(type(v) is not int for v in (index, seed, job.get("variant"))) or not isinstance(job.get("tile_id"), str):
+            raise ValueError(f"job lacks an integer index/seed/variant or a string tile_id: {job!r}")
+        keyed.append((f"{job['tile_id']}#{job['variant']}", job))
+    missing = wanted - {key for key, _ in keyed}
+    if missing:
+        raise ValueError(f"new_keys without a job: {sorted(missing)}")
+    kept = [job for key, job in keyed if key in wanted]
+    first = len(jobs) - len(kept)
+    out = []
+    for offset, job in enumerate(kept):
+        fresh = deepcopy(job)
+        fresh["index"] = first + offset
+        fresh["seed"] = (job["seed"] - job["index"] + fresh["index"]) % SEED_LIMIT
+        out.append(fresh)
+    return out

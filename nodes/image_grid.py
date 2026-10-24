@@ -1,10 +1,7 @@
-import math
-
 import numpy as np
 import torch
-from PIL import Image, ImageDraw, ImageFont
 
-_BG = {"black": (0, 0, 0), "white": (255, 255, 255), "gray": (128, 128, 128)}
+from ..tilemap_core.scene_render import label_grid
 
 
 class ImageGridLabeled:
@@ -28,27 +25,9 @@ class ImageGridLabeled:
     CATEGORY = "custom_comfy_nodes/image"
 
     def make_grid(self, images, columns, padding, background, show_index):
-        b, h, w = images.shape[:3]
-        rows = math.ceil(b / columns)
-        grid = Image.new(
-            "RGB",
-            (columns * w + (columns + 1) * padding, rows * h + (rows + 1) * padding),
-            _BG[background],
-        )
-        draw = ImageDraw.Draw(grid)
-        font = ImageFont.load_default()
-        for i in range(b):
-            x = padding + (i % columns) * (w + padding)
-            y = padding + (i // columns) * (h + padding)
-            arr = (images[i, :, :, :3].clamp(0, 1) * 255).round().byte().cpu().numpy()
-            grid.paste(Image.fromarray(arr), (x, y))
-            if show_index:
-                label = str(i + 1)
-                right, bottom = draw.textbbox((x + 2, y + 2), label, font=font)[2:]
-                draw.rectangle((x, y, right + 2, bottom + 2), fill=(0, 0, 0))
-                draw.text((x + 2, y + 2), label, fill=(255, 255, 255), font=font)
-        out = torch.from_numpy(np.asarray(grid).astype(np.float32) / 255.0).unsqueeze(0)
-        return (out,)
+        arr = (images[..., :3].clamp(0, 1) * 255).round().byte().cpu().numpy()
+        grid = label_grid(arr, columns, padding, background, show_index)
+        return (torch.from_numpy(grid.astype(np.float32) / 255.0).unsqueeze(0),)
 
 
 NODE_CLASS_MAPPINGS = {"CCN_ImageGridLabeled": ImageGridLabeled}
