@@ -160,12 +160,12 @@
     "class_type": "CCN_TilemapAssemble",
     "inputs": {
       "images": [
-        "10",
+        "17",
         0
       ],
       "job_json": [
-        "2",
-        4
+        "17",
+        1
       ],
       "palette_size": 24,
       "columns": 8,
@@ -232,6 +232,76 @@
       "padding": 2,
       "background": "black",
       "show_index": true
+    }
+  },
+  "17": {
+    "class_type": "CCN_TilemapReviewLoop",
+    "_meta": {
+      "title": "Tilemap Review Loop"
+    },
+    "inputs": {
+      "model": [
+        "5",
+        0
+      ],
+      "clip": [
+        "5",
+        1
+      ],
+      "vae": [
+        "3",
+        2
+      ],
+      "images": [
+        "10",
+        0
+      ],
+      "job_json": [
+        "2",
+        4
+      ],
+      "review_mode": "vision+heuristic",
+      "review_model": "claude-sonnet-5",
+      "max_rounds": 3,
+      "max_regen_per_round": 8,
+      "max_attempts": 3,
+      "pass_score": 80,
+      "layout_source": "auto",
+      "palette_size": 24,
+      "seam_blend": 0.25,
+      "key_tolerance": 40,
+      "transitions": true,
+      "steps": 20,
+      "cfg": 1,
+      "sampler": "euler",
+      "scheduler": "simple",
+      "guidance": 3.5,
+      "negative": "",
+      "on_review_error": "keep"
+    }
+  },
+  "18": {
+    "class_type": "PreviewImage",
+    "_meta": {
+      "title": "Preview Scene"
+    },
+    "inputs": {
+      "images": [
+        "17",
+        2
+      ]
+    }
+  },
+  "19": {
+    "class_type": "PreviewAny",
+    "_meta": {
+      "title": "Review Log"
+    },
+    "inputs": {
+      "source": [
+        "17",
+        3
+      ]
     }
   }
 }
