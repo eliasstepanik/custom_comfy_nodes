@@ -120,19 +120,22 @@ def _review(o: SimpleNamespace, llm: ls.LlmBudget, cur: dict, jobs: list, rows: 
 
 
 def review_loop(model: object, clip: object, vae: object, text: str, images: list | None, o: SimpleNamespace,
-                chat=None, render=None) -> tuple:
+                chat=None, render=None, progress=None) -> tuple:
     """Run the loop; return ``(images, job_json, scene rgb, review_log)``.
 
     ``images``: uint8 ``HxWx3`` arrays in job order, or ``None`` to render the first pass with ``render``
     (default ``render_jobs``). Untouched tiles come back as the very same objects. ``chat`` defaults to
-    ``llm_client.chat``. ``o`` carries the validated widgets (see ``_loop_state.parse_options``).
+    ``llm_client.chat``. ``o`` carries the validated widgets (see ``_loop_state.parse_options``). ``progress``
+    (``None`` or an object with ``update(n)``) is handed to ``render`` as ``progress=`` (one update per job).
+    The returned scene always shows the returned images.
     """
     chat, render = chat or llm_client.chat, render or render_jobs
+    extra = {} if progress is None else {"progress": progress}  # fakes without a ``progress`` parameter stay valid
     data, size, view, plan, jobs, seed = ls.parse_job_json(text)
     keys = [ls.job_key(j) for j in jobs]
     base = dict(zip(keys, jobs))
     if images is None:
-        cur = dict(zip(keys, (ls.quantize(i) for i in render(model, clip, vae, jobs, o.params, o.negative))))
+        cur = dict(zip(keys, (ls.quantize(i) for i in render(model, clip, vae, jobs, o.params, o.negative, **extra))))
     elif len(images) != len(jobs):
         raise ValueError(f"got {len(images)} images for {len(jobs)} jobs; connect one image per job in job order")
     else:
@@ -146,7 +149,7 @@ def review_loop(model: object, clip: object, vae: object, text: str, images: lis
     catalogue = {"tiles": [{k: t[k] for k in ("id", "category", "variants", "footprint") if k in t} for t in plan["tiles"]],
                  "transitions": trans}
     scene, layout_src, layout_problem = _layout(o.layout_source, llm, catalogue, view, seed)
-    attempts, best, last, rounds, rgba, stop = {}, {}, [], [], None, "no_rounds"
+    attempts, best, last, rounds, rgba, stop, reverted = {}, {}, [], [], None, "no_rounds", []
     for rnd in range(1, o.max_rounds + 1):
         cells, rows, rgba = _scene(cur, jobs, plan, size, seed, snap_p, bool(trans), scene)
         issues, verdict, info = _review(o, llm, cur, jobs, rows, cells, rgba, size, view, snap_p["key_tolerance"])
@@ -170,7 +173,7 @@ def review_loop(model: object, clip: object, vae: object, text: str, images: lis
         if not new_jobs:
             stop, last = "no_jobs", []
             break
-        fresh = render(model, clip, vae, new_jobs, o.params, o.negative)
+        fresh = render(model, clip, vae, new_jobs, o.params, o.negative, **extra)
         attempts = regen_plan.record_attempts(attempts, new_jobs)
         snap_p = regen_plan.snap_for_issues(issues, snap_p)
         for job, img in zip(new_jobs, fresh):
@@ -178,7 +181,7 @@ def review_loop(model: object, clip: object, vae: object, text: str, images: lis
         last = [ls.job_key(j) for j in new_jobs]
         entry["regen"] = sorted(last)
         stop = "max_rounds"
-    if rgba is None:
+    if rgba is None or last or reverted:  # tiles changed after the round-start render: show what is returned
         rgba = _scene(cur, jobs, plan, size, seed, snap_p, bool(trans), scene)[2]
     out = ls.build_job_json(text, data, snap_p, len(rounds), attempts, stop, o.max_rounds)
     log = ls.build_log(stop, llm.calls, layout_src, layout_problem, last, rounds)
@@ -192,6 +195,22 @@ def _combo(attr: str, default: str) -> list:
         return list(getattr(samplers.KSampler, attr))
     except ImportError:
         return [default]
+
+
+def _progress(o: SimpleNamespace, text: str, first_pass: bool) -> object:
+    """A ``comfy.utils.ProgressBar`` over the planned render jobs (first pass plus the regeneration cap), or ``None``.
+
+    ``render_jobs`` calls ``update(1)`` once per job; the total is the worst case, so an early stop leaves the bar short.
+    Any failure (no ComfyUI, bad ``job_json``, ...) yields ``None``: progress is cosmetic, ``review_loop`` reports real errors.
+    """
+    try:
+        from comfy.utils import ProgressBar
+
+        n = len(ls.parse_job_json(text)[4])
+        total = (n if first_pass else 0) + o.max_rounds * min(o.max_regen, n)
+        return ProgressBar(total) if total else None
+    except Exception:  # noqa: BLE001 - see docstring
+        return None
 
 
 class CCN_TilemapReviewLoop:
@@ -240,8 +259,9 @@ class CCN_TilemapReviewLoop:
 
         given = kw.get("images")
         arrays = None if given is None else image_list_to_np(given, 3, True)
+        job_json = ls.one(kw["job_json"], "job_json")
         out, text, scene, log = review_loop(ls.one(kw["model"], "model"), ls.one(kw["clip"], "clip"), ls.one(kw["vae"], "vae"),
-                                            ls.one(kw["job_json"], "job_json"), arrays, o)
+                                            job_json, arrays, o, progress=_progress(o, job_json, arrays is None))
         return [np_to_image([a]) for a in out], text, np_to_image([scene]), log
 
 
