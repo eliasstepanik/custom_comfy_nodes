@@ -2,8 +2,10 @@
 
 import copy
 import json
+import subprocess
 import sys
 import unittest
+from pathlib import Path
 
 import numpy as np
 
@@ -288,9 +290,10 @@ class ParseScene(unittest.TestCase):
             with self.subTest(args=args), self.assertRaises(ValueError):
                 S.parse_scene(*args)
 
-    def test_module_is_pure_no_torch_or_comfy(self):
-        self.assertNotIn("torch", sys.modules)
-        self.assertFalse([m for m in sys.modules if m == "comfy" or m.startswith("comfy.")])
+    def test_module_is_pure_no_torch_or_comfy(self):  # fresh interpreter: other test modules may import torch in-process
+        code = "import sys, tilemap_core.scene_layout; sys.exit(any(m.split('.')[0] in ('torch', 'comfy') for m in sys.modules))"
+        done = subprocess.run([sys.executable, "-c", code], cwd=Path(__file__).resolve().parents[1], capture_output=True, text=True)
+        self.assertEqual(done.returncode, 0, done.stderr)
 
 
 if __name__ == "__main__":
